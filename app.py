@@ -1,100 +1,165 @@
-import dash
-from dash import dcc, html
-from dash.dependencies import Input, Output
+import streamlit as st
+import pandas as pd
+from sklearn.linear_model import LinearRegression
+import plotly.graph_objects as go
 
-app = dash.Dash(__name__, external_stylesheets=['assets/styles.css'])
-server = app.server
-
-def classify_soil(texture, ph, drainage, organic, depth):
-    # تصمیم ساده‌شده بر اساس داده‌ها
-    if organic == 'زیاد':
-        return ('Histosols', 'Fibrists', 'خاک آلی، با زهکشی ضعیف، عمدتاً در مرداب‌ها')
-    if drainage == 'ضعیف' and texture == 'رسی':
-        return ('Ultisols', 'Aquults', 'خاک قدیمی، اسیدی، زهکشی ضعیف')
-    if drainage == 'خوب' and ph >= 6.0 and ph <= 7.5 and texture == 'لومی':
-        return ('Mollisols', 'Udolls', 'خاک حاصلخیز، مناسب کشاورزی')
-    if drainage == 'متوسط' and texture == 'سیلتی':
-        return ('Alfisols', 'Udalfs', 'خاک نسبتاً حاصلخیز، PH متوسط')
-    if texture == 'شنی' and drainage == 'خوب':
-        return ('Entisols', 'Psamments', 'خاک جوان، تکامل نیافته')
-    if ph < 5.5:
-        return ('Oxisols', 'Udox', 'خاک شدیداً اسیدی، مناطق گرمسیری')
-    return ('Inceptisols', 'Aquepts', 'خاک نسبتاً جوان، زهکشی ضعیف')
-
-app.layout = html.Div(className="container", children=[
-    html.H1("سامانه آنلاین طبقه‌بندی خاک - رویش"),
-    html.H3("ساخته‌شده توسط شرکت زامیتک"),
-
-    html.Div(className="card", children=[
-        html.Label("بافت خاک:"),
-        dcc.Dropdown(
-            id='texture',
-            options=[
-                {'label': 'شنی', 'value': 'شنی'},
-                {'label': 'لومی', 'value': 'لومی'},
-                {'label': 'رسی', 'value': 'رسی'},
-                {'label': 'سیلتی', 'value': 'سیلتی'}
-            ],
-            value='لومی'
-        ),
-
-        html.Label("pH خاک:"),
-        dcc.Input(id='ph', type='number', value=6.5, step=0.1),
-
-        html.Label("زهکشی خاک:"),
-        dcc.Dropdown(
-            id='drainage',
-            options=[
-                {'label': 'خوب', 'value': 'خوب'},
-                {'label': 'متوسط', 'value': 'متوسط'},
-                {'label': 'ضعیف', 'value': 'ضعیف'}
-            ],
-            value='خوب'
-        ),
-
-        html.Label("مواد آلی:"),
-        dcc.Dropdown(
-            id='organic',
-            options=[
-                {'label': 'کم', 'value': 'کم'},
-                {'label': 'زیاد', 'value': 'زیاد'}
-            ],
-            value='کم'
-        ),
-
-        html.Label("عمق خاک:"),
-        dcc.Dropdown(
-            id='depth',
-            options=[
-                {'label': 'کم‌عمق', 'value': 'کم‌عمق'},
-                {'label': 'عمیق', 'value': 'عمیق'}
-            ],
-            value='عمیق'
-        ),
-
-        html.Button('طبقه‌بندی کن', id='submit-btn', n_clicks=0),
-        html.Div(id='result-output', className='result')
-    ])
-])
-
-@app.callback(
-    Output('result-output', 'children'),
-    Input('submit-btn', 'n_clicks'),
-    Input('texture', 'value'),
-    Input('ph', 'value'),
-    Input('drainage', 'value'),
-    Input('organic', 'value'),
-    Input('depth', 'value')
+# تنظیمات اولیه
+st.set_page_config(
+    page_title="پیش‌بینی هوشمند محصول",
+    page_icon="🌿",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
-def update_output(n_clicks, texture, ph, drainage, organic, depth):
-    if n_clicks > 0:
-        order, suborder, desc = classify_soil(texture, ph, drainage, organic, depth)
-        return html.Div([
-            html.H4(f"Order: {order}"),
-            html.H5(f"Suborder: {suborder}"),
-            html.P(desc)
-        ])
-    return ""
 
-if __name__ == '__main__':
-    app.run_server(debug=True)
+# CSS سفارشی
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700&display=swap');
+    
+    * {
+        font-family: 'Vazirmatn', sans-serif !important;
+    }
+    
+    .stApp {
+        background: #f8fff8;
+    }
+    
+    .header-gradient {
+        background: linear-gradient(135deg, #4CAF50 0%, #2196F3 100%);
+        padding: 4rem 2rem;
+        border-radius: 15px;
+        box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        margin-bottom: 3rem;
+    }
+    
+    .prediction-box {
+        background: white;
+        border-radius: 15px;
+        padding: 2rem;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        border-left: 5px solid #4CAF50;
+        margin: 2rem 0;
+    }
+    
+    .stSlider > div > div > div > div {
+        background: #4CAF50 !important;
+    }
+    
+    .st-bb {
+        background-color: transparent !important;
+    }
+    
+    .stButton > button {
+        background: linear-gradient(135deg, #4CAF50 0%, #2196F3 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 25px !important;
+        padding: 12px 30px !important;
+        font-size: 1.2rem !important;
+        transition: all 0.3s !important;
+    }
+    
+    .stButton > button:hover {
+        transform: scale(1.05);
+        box-shadow: 0 5px 15px rgba(76,175,80,0.4);
+    }
+    
+    footer {
+        text-align: center;
+        padding: 2rem;
+        color: #666;
+        border-top: 1px solid #eee;
+        margin-top: 3rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# داده‌ها و مدل
+data = pd.DataFrame({
+    'area': [1, 2, 3, 4, 5],
+    'rainfall': [10, 20, 30, 40, 50],
+    'fertilizer': [100, 200, 300, 400, 500],
+    'yield': [1000, 1500, 2000, 2500, 3000]
+})
+
+features = ['area', 'rainfall', 'fertilizer']
+model = LinearRegression().fit(data[features], data['yield'])
+
+# هدر
+st.markdown("""
+    <div class="header-gradient">
+        <h1 style="color: white; text-align: center; font-size: 2.5rem; margin: 0;">🌾 پیش‌بینی عملکرد محصول</h1>
+        <p style="color: rgba(255,255,255,0.9); text-align: center; font-size: 1.2rem; margin: 1rem 0 0;">
+        سیستم پیشرفته پیش‌بینی کشاورزی مبتنی بر هوش مصنوعی</p>
+    </div>
+""", unsafe_allow_html=True)
+
+# نوار کناری
+with st.sidebar:
+    st.markdown("### 🎛 پارامترهای ورودی")
+    area = st.slider("🌾 مساحت زمین (هکتار)", 1, 10, 3)
+    rainfall = st.slider("🌧️ بارندگی (میلی‌متر)", 10, 100, 30)
+    fertilizer = st.slider("🌱 مصرف کود (کیلوگرم)", 100, 500, 300)
+    
+    if st.button("🚜 محاسبه عملکرد"):
+        with st.spinner("در حال محاسبه..."):
+            input_data = [[area, rainfall, fertilizer]]
+            prediction = model.predict(input_data)[0]
+            st.session_state.prediction = prediction
+
+# بخش اصلی
+col1, col2 = st.columns([1, 2])
+
+with col1:
+    if 'prediction' in st.session_state:
+        st.markdown(f"""
+            <div class="prediction-box">
+                <h3 style="color: #2c3e50; margin: 0;">پیش‌بینی عملکرد</h3>
+                <div style="font-size: 2.5rem; color: #4CAF50; font-weight: bold; text-align: center; margin: 1rem 0;">
+                    {st.session_state.prediction:.0f} کیلوگرم
+                </div>
+                <div style="text-align: center; color: #666;">
+                    در هکتار 🌟
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+with col2:
+    if 'prediction' in st.session_state:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=data['area'],
+            y=data['yield'],
+            mode='markers+lines',
+            name='داده واقعی',
+            line=dict(color='#4CAF50', width=2),
+            marker=dict(size=10, color='#2196F3')
+        ))
+        fig.add_trace(go.Scatter(
+            x=[area],
+            y=[st.session_state.prediction],
+            mode='markers',
+            name='پیش‌بینی شما',
+            marker=dict(size=15, color='#FF5722'),
+            hoverinfo='text',
+            text=[f"پیش‌بینی: {st.session_state.prediction:.0f} kg"]
+        ))
+        fig.update_layout(
+            title="📈 نمودار تحلیل عملکرد",
+            xaxis_title="مساحت زمین (هکتار)",
+            yaxis_title="عملکرد (کیلوگرم)",
+            template="plotly_white",
+            hovermode="x unified",
+            plot_bgcolor='rgba(245,245,245,0.9)',
+            paper_bgcolor='rgba(255,255,255,0.9)',
+            margin=dict(l=20, r=20, t=40, b=20),
+            height=400
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+# Footer
+st.markdown("""
+    <footer>
+        <p>© 2023 سامانه هوشمند کشاورزی | توسعه داده شده با ❤️ و Streamlit</p>
+    </footer>
+""", unsafe_allow_html=True)
